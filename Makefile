@@ -1,8 +1,10 @@
 
-BINARY:=	mpd-slack-status
+BINARY:=	music-status
+SRC!=		find . -type f -name '*.go'
 
 build: $(BINARY)
 
-$(BINARY): ; go build --trimpath -ldflags "-w -s" -o $@
+$(BINARY): $(SRC) go.mod
+	go build --trimpath -ldflags "-w -s" -o $@ ./cmd/
 
 clean: ; rm -f $(BINARY)

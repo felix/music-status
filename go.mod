@@ -1,4 +1,4 @@
-module src.userspace.com.au/felix/mpd-slack-status
+module src.userspace.com.au/felix/mstatus
 
 go 1.17
 
