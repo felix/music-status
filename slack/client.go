@@ -19,7 +19,7 @@ type Client struct {
 	httpClient *http.Client
 	log        mstatus.Logger
 
-	lastStatus string
+	lastSong string
 
 	// Expiry this number of seconds after the song finishes
 	expiry time.Duration
@@ -32,10 +32,14 @@ type Client struct {
 }
 
 // payload is the structure sent to Slack
-type payload map[string]struct {
+type payload struct {
 	StatusText       string `json:"status_text"`
 	StatusEmoji      string `json:"status_emoji"`
 	StatusExpiration int64  `json:"status_expiration"`
+}
+
+func (p payload) String() string {
+	return p.StatusText
 }
 
 const slackAction = "/users.profile.set"
@@ -45,11 +49,12 @@ func New(token, url string, opts ...Option) (*Client, error) {
 		url = "https://" + url
 	}
 	out := &Client{
-		token:        token,
-		apiURL:       url,
-		httpClient:   &http.Client{},
-		defaultEmoji: ":headphones:",
-		expiry:       time.Duration(5 * time.Second),
+		token:      token,
+		apiURL:     url,
+		httpClient: &http.Client{},
+		expiry:     time.Duration(5 * time.Second),
+		emoji:      ":musical_note:",
+		log:        func(...interface{}) {},
 	}
 	for _, o := range opts {
 		if err := o(out); err != nil {
@@ -110,54 +115,48 @@ func Logger(l mstatus.Logger) Option {
 	}
 }
 
-func (c *Client) Unpublish() error {
-	if c.defaultStatus == "" && c.defaultEmoji == "" {
-		return nil
-	}
-	return c.setStatus(payload{
-		"profile": {
+func (c *Client) Handle(event mstatus.State, status mstatus.Status) error {
+	switch event {
+	case mstatus.StateError, mstatus.StateStopped:
+		if c.lastSong == "" {
+			return nil
+		}
+		c.lastSong = ""
+		return c.setStatus(payload{
 			StatusText:       c.defaultStatus,
 			StatusEmoji:      c.defaultEmoji,
 			StatusExpiration: 0,
-		},
-	})
-}
+		})
 
-func (c *Client) Publish(status mstatus.Status) error {
-	if status.Error != nil {
-		return c.Unpublish()
-	}
+	case mstatus.StatePlaying:
+		s := status.Track
 
-	s := status.Track
+		if c.lastSong == s.ID {
+			return nil
+		}
 
-	newStatus := fmt.Sprintf("%q by %s", s.Title, s.Artist)
-	if newStatus == c.lastStatus {
-		return nil
-	}
+		var expiry int64
+		if c.expiry > 0 {
+			expiry += time.Now().Add(c.expiry).Add(s.Duration).Unix()
+		}
 
-	var expiry int64
-	if c.expiry > 0 {
-		expiry += time.Now().Add(c.expiry).Add(s.Duration).Unix()
-	}
-	emoji := c.defaultEmoji
-	if c.emoji != "" {
-		emoji = c.emoji
-	}
-
-	return c.setStatus(payload{
-		"profile": {
-			StatusText:       newStatus,
-			StatusEmoji:      emoji,
+		c.lastSong = s.ID
+		return c.setStatus(payload{
+			StatusText:       fmt.Sprintf("%q by %s", s.Title, s.Artist),
+			StatusEmoji:      c.emoji,
 			StatusExpiration: expiry,
-		},
-	})
+		})
+	default:
+		c.log("slack unhandled state", event)
+	}
+	return nil
 }
 
 func (c *Client) setStatus(p payload) error {
 	uri := c.apiURL + slackAction
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
-	if err := enc.Encode(p); err != nil {
+	if err := enc.Encode(map[string]payload{"profile": p}); err != nil {
 		return err
 	}
 	req, err := http.NewRequest("POST", uri, buf)
@@ -171,7 +170,7 @@ func (c *Client) setStatus(p payload) error {
 		return fmt.Errorf("failed to set status: %w", err)
 	}
 	defer resp.Body.Close()
-	c.log("slack published")
+	c.log("slack published", p)
 
 	var r = struct {
 		OK      bool   `json:"ok"`

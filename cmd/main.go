@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"src.userspace.com.au/felix/mstatus"
+	"src.userspace.com.au/felix/mstatus/listenbrainz"
 	"src.userspace.com.au/felix/mstatus/mpd"
 	"src.userspace.com.au/felix/mstatus/slack"
 )
@@ -53,6 +54,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	brainz, err := listenbrainz.New(
+		cfgString(cfg, "listenbrainzToken"),
+		listenbrainz.Logger(logger),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	mpd, err := mpd.New(
 		mpd.Host(cfgString(cfg, "mpdHost")),
@@ -64,8 +72,15 @@ func main() {
 		log.Fatal(err)
 	}
 
+	svc, err := mstatus.New(
+		mpd,
+		mstatus.WithHandler(slack),
+		mstatus.WithHandler(brainz),
+		mstatus.WithLogger(logger),
+	)
+
 	// This blocks
-	err = mpd.Watch([]mstatus.Publisher{slack})
+	err = svc.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
