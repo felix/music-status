@@ -43,41 +43,46 @@ func main() {
 		logger = log.Println
 	}
 
-	slack, err := slack.New(
-		cfgString(cfg, "slackToken"),
-		cfgString(cfg, "slackURL"),
-		slack.DefaultStatus(cfgString(cfg, "defaultText")),
-		slack.DefaultEmoji(cfgString(cfg, "defaultEmoji")),
-		slack.ExpireAfter(cfgString(cfg, "expireStatus")),
-		slack.Logger(logger),
-	)
-	if err != nil {
-		log.Fatal(err)
+	var options []mstatus.Option
+
+	targets := cfgString(cfg, "global", "targets")
+
+	if strings.Contains(targets, "slack") {
+		slack, err := slack.New(
+			cfgString(cfg, "slack", "token"),
+			cfgString(cfg, "slack", "url"),
+			slack.DefaultStatus(cfgString(cfg, "slack", "defaultText")),
+			slack.DefaultEmoji(cfgString(cfg, "slack", "defaultEmoji")),
+			slack.ExpireAfter(cfgString(cfg, "slack", "expireStatus")),
+			slack.Logger(logger),
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		options = append(options, mstatus.WithHandler(slack))
 	}
-	brainz, err := listenbrainz.New(
-		cfgString(cfg, "listenbrainzToken"),
-		listenbrainz.Logger(logger),
-	)
-	if err != nil {
-		log.Fatal(err)
+	if strings.Contains(targets, "listenbrainz") {
+		brainz, err := listenbrainz.New(
+			cfgString(cfg, "listenbrainz", "token"),
+			listenbrainz.Logger(logger),
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		options = append(options, mstatus.WithHandler(brainz))
 	}
 
 	mpd, err := mpd.New(
-		mpd.Host(cfgString(cfg, "mpdHost")),
-		mpd.Port(cfgInt(cfg, "mpdPort")),
-		mpd.Password(cfgString(cfg, "mpdPassword")),
+		mpd.Host(cfgString(cfg, "mpd", "host")),
+		mpd.Port(cfgInt(cfg, "mpd", "port")),
+		mpd.Password(cfgString(cfg, "mpd", "password")),
 		mpd.Logger(logger),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	svc, err := mstatus.New(
-		mpd,
-		mstatus.WithHandler(slack),
-		mstatus.WithHandler(brainz),
-		mstatus.WithLogger(logger),
-	)
+	svc, err := mstatus.New(mpd, options...)
 
 	// This blocks
 	err = svc.Start()
@@ -86,21 +91,20 @@ func main() {
 	}
 }
 
-func cfgString(cfg [][]string, key string) string {
+func cfgString(cfg [][]string, scope, key string) string {
 	for _, row := range cfg {
-		if strings.EqualFold(row[0], key) {
+		parts := strings.SplitN(row[0], ".", 2)
+		if strings.EqualFold(parts[0], scope) && strings.EqualFold(parts[1], key) {
 			return row[1]
 		}
 	}
 	return ""
 }
 
-func cfgInt(cfg [][]string, key string) int {
+func cfgInt(cfg [][]string, scope, key string) int {
 	var out int
-	for _, row := range cfg {
-		if strings.EqualFold(row[0], key) {
-			out, _ = strconv.Atoi(row[1])
-		}
+	if s := cfgString(cfg, scope, key); s != "" {
+		out, _ = strconv.Atoi(s)
 	}
 	return out
 }
