@@ -117,7 +117,7 @@ func Logger(l mstatus.Logger) Option {
 
 func (c *Client) Handle(event mstatus.State, status mstatus.Status) error {
 	switch event {
-	case mstatus.StateError, mstatus.StateStopped:
+	case mstatus.StateError, mstatus.StateStopped, mstatus.StatePaused:
 		if c.lastSong == "" {
 			return nil
 		}

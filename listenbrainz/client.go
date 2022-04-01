@@ -42,9 +42,21 @@ type track struct {
 	singleSent  bool
 	playingSent bool
 
-	Title  string `json:"track_name"`
-	Artist string `json:"artist_name"`
-	Album  string `json:"release_name"`
+	Title          string         `json:"track_name"`
+	Artist         string         `json:"artist_name"`
+	Album          string         `json:"release_name"`
+	AdditionalInfo additionalInfo `json:"additional_info,omitempty"`
+}
+
+type additionalInfo struct {
+	MediaPlayer             string   `json:"media_player,omitempty"`
+	SubmissionClient        string   `json:"submission_client,omitempty"`
+	SubmissionClientVersion string   `json:"submission_client_version,omitempty"`
+	ReleaseMBID             string   `json:"release_mbid,omitempty"`
+	ArtistMBIDS             []string `json:"artist_mbids,omitempty"`
+	RecordingMBID           string   `json:"recording_mbid,omitempty"`
+	WorkMBIDs               []string `json:"work_mbids,omitempty"`
+	Tags                    []string `json:"tags,omitempty"`
 }
 
 func New(token string, opts ...Option) (*Client, error) {
@@ -107,7 +119,16 @@ func (c *Client) Handle(event mstatus.State, status mstatus.Status) error {
 					Title:  status.Track.Title,
 					Artist: status.Track.Artist,
 					Album:  status.Track.Album,
-					// TODO add musicbrainz
+					AdditionalInfo: additionalInfo{
+						// TODO store this somewhere else
+						MediaPlayer:             status.Player.Name,
+						SubmissionClient:        "music-status https://github.com/felix/music-status",
+						SubmissionClientVersion: "0.1.0",
+						ReleaseMBID:             status.Track.MbReleaseID,
+						ArtistMBIDS:             []string{status.Track.MbArtistID},
+						//RecordingMBID: string
+						//Tags: []string
+					},
 				},
 			}
 		}

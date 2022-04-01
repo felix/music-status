@@ -115,7 +115,9 @@ func (c *Client) Watch(handlers []mstatus.Handler) error {
 			if currentSong != nil {
 				//c.log("mpd tick", currentEvent, currentSong, currentSong.Elapsed)
 				currentState = mstatus.StatePlaying
-				err := publishToAll(handlers, currentState, mstatus.Status{Track: *currentSong})
+				err := publishToAll(handlers, currentState, mstatus.Status{
+					Player: mstatus.Player{Name: "mpd"},
+					Track:  *currentSong})
 				if err != nil {
 					c.log("mpd publish error", err)
 				}
@@ -129,17 +131,14 @@ func (c *Client) Watch(handlers []mstatus.Handler) error {
 				continue
 			}
 
+			c.log("mpd state", attrs["state"])
 			switch attrs["state"] {
 			case "stop":
 				currentState = mstatus.StateStopped
-				currentSong = nil
-			case "pause":
+			case "paused":
 				currentState = mstatus.StatePaused
 			case "play":
 				currentState = mstatus.StatePlaying
-				if currentSong, err = c.fetchSong(conn); err != nil {
-					c.log("mpd error", err)
-				}
 			}
 		}
 	}
@@ -196,13 +195,16 @@ func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Song, error) {
 		elapsed = time.Duration(secs * float64(time.Second))
 	}
 	track := mstatus.Song{
-		ID:        song["Id"],
-		Title:     song["Title"],
-		MbTrackID: song["MUSICBRAINZ_TRACKID"],
-		Artist:    song["Artist"],
-		Album:     song["Album"],
-		Duration:  duration,
-		Elapsed:   elapsed,
+		ID:          song["Id"],
+		Title:       song["Title"],
+		Artist:      song["Artist"],
+		Album:       song["Album"],
+		Duration:    duration,
+		Elapsed:     elapsed,
+		MbTrackID:   song["MUSICBRAINZ_TRACKID"],
+		MbReleaseID: song["MUSICBRAINZ_ALBUMID"],
+		MbArtistID:  song["MUSICBRAINZ_ARTISTID"],
+		// MUSICBRAINZ_WORKID:4a484ba1-22d4-4fd1-a29a-b1c49d1e5161
 	}
 	//c.log("mpd set song", track)
 	return &track, nil

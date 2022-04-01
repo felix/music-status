@@ -19,15 +19,15 @@ const (
 )
 
 type Song struct {
-	ID         string
-	Title      string
-	Artist     string
-	Album      string
-	Duration   time.Duration
-	Elapsed    time.Duration
-	MbArtistID string
-	MbTrackID  string
-	MbWorkID   string
+	ID          string
+	Title       string
+	Artist      string
+	Album       string
+	Duration    time.Duration
+	Elapsed     time.Duration
+	MbArtistID  string
+	MbTrackID   string
+	MbReleaseID string
 }
 
 func (s Song) String() string {
@@ -36,7 +36,14 @@ func (s Song) String() string {
 }
 
 type Status struct {
-	Track Song
-	Error error
+	Player Player
+	Track  Song
+	Error  error
 }
+
+type Player struct {
+	Name    string
+	Version string
+}
+
 type Logger func(...interface{})
