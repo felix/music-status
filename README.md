@@ -2,14 +2,13 @@
 
 Publish your current audio track.
 
+Currently only supports MPD, Slack, and Listenbrainz.
+
+
 ## Configuration
 
-The configuration is a very simple key=value format. See the `example.conf`
-provided.
-
-## Slack authorization
-
-- It requires a personal token ie. starting with `xoxp-`
+The configuration is a very simple scope.key=value format (much the same as
+sysctl). See the `example.conf` provided.
 
 
 ## Usage

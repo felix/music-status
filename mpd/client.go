@@ -201,8 +201,8 @@ func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Song, error) {
 		Album:       song["Album"],
 		Duration:    duration,
 		Elapsed:     elapsed,
-		MbTrackID:   song["MUSICBRAINZ_TRACKID"],
-		MbReleaseID: song["MUSICBRAINZ_ALBUMID"],
+		MbTrackID:   song["MUSICBRAINZ_TRACKID"], // recording ID
+		MbReleaseID: song["MUSICBRAINZ_ALBUMID"], // album ID
 		MbArtistID:  song["MUSICBRAINZ_ARTISTID"],
 		// MUSICBRAINZ_WORKID:4a484ba1-22d4-4fd1-a29a-b1c49d1e5161
 	}

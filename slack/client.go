@@ -52,7 +52,7 @@ func New(token, url string, opts ...Option) (*Client, error) {
 		token:      token,
 		apiURL:     url,
 		httpClient: &http.Client{},
-		expiry:     time.Duration(5 * time.Second),
+		expiry:     time.Duration(15 * time.Second),
 		emoji:      ":musical_note:",
 		log:        func(...interface{}) {},
 	}

@@ -26,8 +26,8 @@ type Song struct {
 	Duration    time.Duration
 	Elapsed     time.Duration
 	MbArtistID  string
-	MbTrackID   string
-	MbReleaseID string
+	MbTrackID   string // recording ID
+	MbReleaseID string // album ID
 }
 
 func (s Song) String() string {
