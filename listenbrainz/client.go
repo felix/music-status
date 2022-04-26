@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"time"
 
 	"src.userspace.com.au/felix/mstatus"
 )
 
-const defaultURL = "https://api.listenbrainz.org"
+const defaultURL = "https://api.listenbrainz.org/1/submit-listens"
 
 type Client struct {
 	token      string
@@ -87,87 +88,99 @@ func Logger(l mstatus.Logger) Option {
 	}
 }
 
-func (c *Client) Handle(event mstatus.State, status mstatus.Status) error {
-	switch event {
-	case mstatus.StatePlaying:
-		if c.current != nil {
-			newTrack := c.current.Track.id != status.Track.ID
-			if newTrack || !c.current.Track.singleSent {
-				// Listens should be submitted for tracks when the user has listened to
-				// half the track or 4 minutes of the track, whichever is lower. If the
-				// user hasn’t listened to 4 minutes or half the track, it doesn’t
-				// fully count as a listen and should not be submitted.
-				// https://listenbrainz.readthedocs.io/en/latest/users/api/core/#post--1-submit-listens
-				elapsed := status.Track.Elapsed.Seconds()
-				pc := elapsed / status.Track.Duration.Seconds()
-				if pc > 0.5 || (elapsed > 240) {
-					c.submit(submission{
-						ListenType: "single",
-						Payloads:   []payload{*c.current},
-					})
-					c.current.Track.singleSent = true
-				}
-				if newTrack {
-					c.current = nil
+func (c *Client) Start(events <-chan mstatus.Status) {
+	for event := range events {
+		switch event.State {
+		case mstatus.StatePlaying:
+			if c.current != nil {
+				newTrack := c.current.Track.id != event.Track.ID
+				if newTrack || !c.current.Track.singleSent {
+					// Listens should be submitted for tracks when the user has listened to
+					// half the track or 4 minutes of the track, whichever is lower. If the
+					// user hasn’t listened to 4 minutes or half the track, it doesn’t
+					// fully count as a listen and should not be submitted.
+					// https://listenbrainz.readthedocs.io/en/latest/users/api/core/#post--1-submit-listens
+					elapsed := event.Track.Elapsed.Seconds()
+					pc := elapsed / event.Track.Duration.Seconds()
+					if pc > 0.5 || (elapsed > 240) {
+						if err := c.submit(submission{
+							ListenType: "single",
+							Payloads:   []payload{*c.current},
+						}); err != nil {
+							errorf("failed to submit: %s", err)
+						}
+						c.current.Track.singleSent = true
+					}
+					if newTrack {
+						c.current = nil
+					}
 				}
 			}
-		}
-		if c.current == nil {
-			c.current = &payload{
-				Track: track{
-					id:     status.Track.ID,
-					Title:  status.Track.Title,
-					Artist: status.Track.Artist,
-					Album:  status.Track.Album,
-					AdditionalInfo: additionalInfo{
-						// TODO store this somewhere else
-						MediaPlayer:             status.Player.Name,
-						SubmissionClient:        "music-status https://github.com/felix/music-status",
-						SubmissionClientVersion: "0.1.0",
-						ReleaseMBID:             status.Track.MbReleaseID,
-						ArtistMBIDS:             []string{status.Track.MbArtistID},
-						//RecordingMBID: string
-						//Tags: []string
+			if c.current == nil {
+				c.current = &payload{
+					Track: track{
+						id:     event.Track.ID,
+						Title:  event.Track.Title,
+						Artist: event.Track.Artist,
+						Album:  event.Track.Album,
+						AdditionalInfo: additionalInfo{
+							// TODO store this somewhere else
+							MediaPlayer:             event.Player.Name,
+							SubmissionClient:        "music-status https://github.com/felix/music-status",
+							SubmissionClientVersion: "0.1.0",
+							ReleaseMBID:             event.Track.MbReleaseID,
+							ArtistMBIDS:             []string{event.Track.MbArtistID},
+							//RecordingMBID: string
+							//Tags: []string
+						},
 					},
-				},
+				}
 			}
-		}
 
-		if !c.current.Track.playingSent {
-			c.submit(submission{
-				ListenType: "playing_now",
-				Payloads:   []payload{*c.current},
-			})
-			c.current.ListenedAt = time.Now().Unix()
-			c.current.Track.playingSent = true
-		}
+			if !c.current.Track.playingSent {
+				if err := c.submit(submission{
+					ListenType: "playing_now",
+					Payloads:   []payload{*c.current},
+				}); err != nil {
+					errorf("failed to submit: %s", err)
+				}
+				c.current.ListenedAt = time.Now().Unix()
+				c.current.Track.playingSent = true
+			}
 
-	case mstatus.StateStopped:
-		c.current = nil
+		case mstatus.StateStopped:
+			c.current = nil
+		}
 	}
-	return nil
 }
 
 func (c *Client) submit(sub submission) error {
-	uri := c.apiURL + "/1/submit-listens"
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(sub); err != nil {
 		return err
 	}
-	req, err := http.NewRequest("POST", uri, buf)
+	req, err := http.NewRequest("POST", c.apiURL, buf)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Token %s", c.token))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		body, _ := ioutil.ReadAll(resp.Body)
-		e := fmt.Sprintf("failed to set status: %s %d %q", err, resp.StatusCode, string(body))
-		c.log("listenbrainz failure:", e)
-		return fmt.Errorf(e)
+	if err != nil {
+		var body []byte
+		if resp != nil && resp.StatusCode != 200 {
+			if resp.Body != nil {
+				body, _ = ioutil.ReadAll(resp.Body)
+			}
+			err = fmt.Errorf("failed to set status: %w %d %q", err, resp.StatusCode, string(body))
+		}
+		return err
 	}
 	c.log("listenbrainz published", sub.ListenType, sub.Payloads[0])
 	return nil
+}
+
+func errorf(format string, v ...interface{}) {
+	fmt.Fprintf(os.Stderr, "listenbrainz error: "+format, v...)
 }

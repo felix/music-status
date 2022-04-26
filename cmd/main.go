@@ -42,6 +42,7 @@ func main() {
 	if verbose {
 		logger = log.Println
 	}
+	logger("being verbose")
 
 	var options []mstatus.Option
 
@@ -81,8 +82,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	options = append(options, mstatus.WithLogger(logger))
 
 	svc, err := mstatus.New(mpd, options...)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// This blocks
 	err = svc.Start()

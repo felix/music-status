@@ -7,7 +7,15 @@ build: $(BINARY)
 $(BINARY): $(SRC) go.mod
 	go build --trimpath -ldflags "-w -s" -o $@ ./cmd/
 
-test:
-	go test ./...
+test: lint
+	go test -race -short -coverprofile=coverage.out -covermode=atomic ./...
 
-clean: ; rm -f $(BINARY)
+cover: test
+	go tool cover -func=coverage.out
+
+lint:
+	test -n "$$(command -v golangci-lint)" && golangci-lint run ./... || go vet ./...
+
+clean:
+	rm -f $(BINARY)
+	rm -f coverage.*

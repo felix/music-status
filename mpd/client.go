@@ -2,6 +2,7 @@ package mpd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 type Client struct {
 	host     string
 	port     int
+	events   chan mstatus.Status
 	password string
 	log      mstatus.Logger
 	done     chan struct{}
@@ -21,9 +23,10 @@ type Client struct {
 
 func New(opts ...Option) (*Client, error) {
 	out := &Client{
-		host: "localhost",
-		port: 6600,
-		log:  func(...interface{}) {},
+		host:   "localhost",
+		port:   6600,
+		events: make(chan mstatus.Status),
+		log:    func(...interface{}) {},
 	}
 	for _, o := range opts {
 		if err := o(out); err != nil {
@@ -62,12 +65,17 @@ func Logger(l mstatus.Logger) Option {
 	}
 }
 
+func (c *Client) Events() chan mstatus.Status {
+	return c.events
+}
+
 func (c *Client) Stop() error {
 	close(c.done)
 	return nil
 }
 
-func (c *Client) Watch(handlers []mstatus.Handler) error {
+func (c *Client) Watch() error {
+	c.log("mpd starting")
 	addr := fmt.Sprintf("%s:%d", c.host, c.port)
 	conn, err := gompd.Dial("tcp", addr)
 	if err != nil {
@@ -80,7 +88,9 @@ func (c *Client) Watch(handlers []mstatus.Handler) error {
 
 	go func() {
 		for range time.Tick(30 * time.Second) {
-			conn.Ping()
+			if err := conn.Ping(); err != nil {
+				errorf("ping failure: %s", err)
+			}
 		}
 	}()
 
@@ -90,66 +100,55 @@ func (c *Client) Watch(handlers []mstatus.Handler) error {
 	}
 	defer watcher.Close()
 
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(time.Second)
 
-	var currentSong *mstatus.Song
-	currentState := mstatus.StateStopped
-
-	// Publish on start
-	// if track, err := c.publishSong(handlers, mstatus.EventPlay, conn); err == nil {
-	// 	currentEvent = mstatus.EventPlay
-	// 	currentSong = mstatus.Status{Track: *track}
-	// }
+	status := mstatus.Status{
+		Player: mstatus.Player{Name: "mpd"},
+	}
 
 	for {
+		status.State = mstatus.StateStopped
+		var err error
 		select {
 		case <-c.done:
 			return nil
 
 		case <-ticker.C:
-			currentSong, err = c.fetchSong(conn)
+			status.Track, err = c.fetchSong(conn)
 			if err != nil {
 				c.log("mpd error", err)
 				continue
 			}
-			if currentSong != nil {
-				//c.log("mpd tick", currentEvent, currentSong, currentSong.Elapsed)
-				currentState = mstatus.StatePlaying
-				err := publishToAll(handlers, currentState, mstatus.Status{
-					Player: mstatus.Player{Name: "mpd"},
-					Track:  *currentSong})
-				if err != nil {
-					c.log("mpd publish error", err)
-				}
+			if status.Track != nil {
+				status.State = mstatus.StatePlaying
 			}
+			c.events <- status
 
 		case <-watcher.Event:
 			attrs, err := conn.Status()
-			if err != nil {
-				currentState = mstatus.StateError
-				currentSong = nil
-				continue
+			if err == nil {
+				switch attrs["state"] {
+				case "stop":
+					status.State = mstatus.StateStopped
+				case "paused":
+					status.State = mstatus.StatePaused
+				case "play":
+					status.State = mstatus.StatePlaying
+				}
 			}
-
-			c.log("mpd state", attrs["state"])
-			switch attrs["state"] {
-			case "stop":
-				currentState = mstatus.StateStopped
-			case "paused":
-				currentState = mstatus.StatePaused
-			case "play":
-				currentState = mstatus.StatePlaying
-			}
+		}
+		if status.State == mstatus.StateError {
+			c.log("mpd error", err)
 		}
 	}
 }
 
-func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Song, error) {
-	status, err := conn.Status()
+func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Track, error) {
+	stat, err := conn.Status()
 	if err != nil {
 		return nil, err
 	}
-	if status["state"] != "play" {
+	if stat["state"] != "play" {
 		return nil, nil
 	}
 	song, err := conn.CurrentSong()
@@ -181,9 +180,9 @@ func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Song, error) {
 	// Track:1
 	// duration:291.549
 	// file:Eric_Clapton/461_Ocean_Boulevard/01_Motherless_Children.flac
-	//c.log("mpd song", status)
+	//c.log("mpd song", stat)
 
-	parts := strings.SplitN(status["time"], ":", 2)
+	parts := strings.SplitN(stat["time"], ":", 2)
 	var duration time.Duration
 	secs, err := strconv.ParseFloat(parts[1], 64)
 	if err == nil {
@@ -194,7 +193,7 @@ func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Song, error) {
 	if err == nil {
 		elapsed = time.Duration(secs * float64(time.Second))
 	}
-	track := mstatus.Song{
+	return &mstatus.Track{
 		ID:          song["Id"],
 		Title:       song["Title"],
 		Artist:      song["Artist"],
@@ -205,16 +204,9 @@ func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Song, error) {
 		MbReleaseID: song["MUSICBRAINZ_ALBUMID"], // album ID
 		MbArtistID:  song["MUSICBRAINZ_ARTISTID"],
 		// MUSICBRAINZ_WORKID:4a484ba1-22d4-4fd1-a29a-b1c49d1e5161
-	}
-	//c.log("mpd set song", track)
-	return &track, nil
+	}, nil
 }
 
-func publishToAll(handlers []mstatus.Handler, e mstatus.State, s mstatus.Status) error {
-	for _, p := range handlers {
-		if err := p.Handle(e, s); err != nil {
-			return fmt.Errorf("publish error: %w", err)
-		}
-	}
-	return nil
+func errorf(format string, v ...interface{}) {
+	fmt.Fprintf(os.Stderr, "mpd error: "+format, v...)
 }

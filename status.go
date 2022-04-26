@@ -18,7 +18,7 @@ const (
 	StateError State = "error"
 )
 
-type Song struct {
+type Track struct {
 	ID          string
 	Title       string
 	Artist      string
@@ -30,14 +30,15 @@ type Song struct {
 	MbReleaseID string // album ID
 }
 
-func (s Song) String() string {
-	return fmt.Sprintf("(%s) %q by %s", s.ID, s.Title, s.Artist)
+func (s Track) String() string {
+	return fmt.Sprintf("%q by %s", s.Title, s.Artist)
 
 }
 
 type Status struct {
+	State  State
 	Player Player
-	Track  Song
+	Track  *Track
 	Error  error
 }
 

@@ -1,10 +1,12 @@
 package mstatus
 
 type Handler interface {
-	Handle(State, Status) error
+	Start(<-chan Status)
 }
 type Source interface {
-	Watch([]Handler) error
+	Watch() error
+	Events() chan Status
+	Stop() error
 }
 
 type Server struct {
@@ -45,5 +47,30 @@ func WithLogger(l Logger) Option {
 }
 
 func (s *Server) Start() error {
-	return s.src.Watch(s.handlers)
+	var pub []chan Status
+	for _, h := range s.handlers {
+		ch := make(chan Status)
+		pub = append(pub, ch)
+		go h.Start(ch)
+	}
+
+	go func() {
+		var lastState State
+		for event := range s.src.Events() {
+			if event.State != lastState {
+				s.log("server event:", event.State)
+				lastState = event.State
+			}
+			for _, ch := range pub {
+				ch <- event
+			}
+		}
+	}()
+
+	// Blocks
+	return s.src.Watch()
+}
+
+func (s *Server) Stop() error {
+	return s.src.Stop()
 }

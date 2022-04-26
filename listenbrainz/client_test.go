@@ -12,65 +12,82 @@ import (
 	"src.userspace.com.au/felix/mstatus"
 )
 
-func TestHandle(t *testing.T) {
-	playingTrack := mstatus.Song{
+func TestListenbrainzHandle(t *testing.T) {
+	playingTrack := mstatus.Track{
 		ID:     "id",
+		Title:  "title",
 		Artist: "artist",
 		Album:  "album",
 	}
+	addInfo := additionalInfo{
+		SubmissionClient:        "music-status https://github.com/felix/music-status",
+		SubmissionClientVersion: "0.1.0",
+		ArtistMBIDS:             []string{""},
+	}
 	tests := map[string]struct {
-		state   mstatus.State
 		status  mstatus.Status
 		current *payload
 		sub     submission
 		failure bool
 	}{
 		"stopped": {
-			state:  mstatus.StateStopped,
-			status: mstatus.Status{Track: playingTrack},
-			sub:    submission{},
+			status: mstatus.Status{
+				State: mstatus.StateStopped,
+				Track: &playingTrack,
+			},
+			sub: submission{},
 		},
 		"new play": {
-			state:  mstatus.StatePlaying,
-			status: mstatus.Status{Track: playingTrack},
+			status: mstatus.Status{
+				State: mstatus.StatePlaying,
+				Track: &playingTrack,
+			},
 			//current: &payload{Track: track{ID: "current"}},
 			sub: submission{
 				ListenType: "playing_now",
 				Payloads: []payload{{
 					Track: track{
-						Artist: "artist",
-						Album:  "album",
+						Title:          "title",
+						Artist:         "artist",
+						Album:          "album",
+						AdditionalInfo: addInfo,
 					}},
 				},
 			},
 		},
 		"continued play": {
-			state: mstatus.StatePlaying,
-			status: mstatus.Status{Track: mstatus.Song{
-				ID:       "id",
-				Artist:   "artist",
-				Album:    "album",
-				Duration: 90 * time.Second,
-				Elapsed:  time.Minute,
-			}},
+			status: mstatus.Status{
+				State: mstatus.StatePlaying,
+				Track: &mstatus.Track{
+					ID:       "id",
+					Title:    "continued play",
+					Artist:   "artist",
+					Album:    "album",
+					Duration: 90 * time.Second,
+					Elapsed:  time.Minute,
+				}},
 			sub: submission{
 				ListenType: "playing_now",
 				Payloads: []payload{{
 					Track: track{
-						Artist: "artist", Album: "album",
+						Title:          "continued play",
+						Artist:         "artist",
+						Album:          "album",
+						AdditionalInfo: addInfo,
 					}},
 				},
 			},
 		},
 		"old play": {
-			state: mstatus.StatePlaying,
-			status: mstatus.Status{Track: mstatus.Song{
-				ID:       "id",
-				Artist:   "artist",
-				Album:    "album",
-				Duration: 90 * time.Second,
-				Elapsed:  time.Minute,
-			}},
+			status: mstatus.Status{
+				State: mstatus.StatePlaying,
+				Track: &mstatus.Track{
+					ID:       "id",
+					Artist:   "artist",
+					Album:    "album",
+					Duration: 90 * time.Second,
+					Elapsed:  time.Minute,
+				}},
 			current: &payload{Track: track{
 				id:          "id",
 				singleSent:  true,
@@ -88,6 +105,7 @@ func TestHandle(t *testing.T) {
 				if err := dec.Decode(&sub); err != nil {
 					t.Fatalf("failed to decode %s", err)
 				}
+				t.Logf("submission: %#v", sub)
 				fmt.Fprintln(w, "OK")
 			}))
 			defer ts.Close()
@@ -97,15 +115,19 @@ func TestHandle(t *testing.T) {
 			c.apiURL = ts.URL
 			c.current = tt.current
 
-			err := c.Handle(tt.state, tt.status)
-			if err != nil && !tt.failure {
-				t.Fatalf("got %s, want nil", err)
+			ch := make(chan mstatus.Status)
+			go func() {
+				ch <- tt.status
+				close(ch)
+			}()
+			c.Start(ch)
+			if len(sub.Payloads) != len(tt.sub.Payloads) {
+				t.Fatalf("got %d, want %d", len(sub.Payloads), len(tt.sub.Payloads))
 			}
-			if err == nil && tt.failure {
-				t.Fatalf("got nil, want failure")
-			}
-			if !reflect.DeepEqual(sub, tt.sub) {
-				t.Fatalf("got %#v, want %#v", sub, tt.sub)
+			if len(sub.Payloads) != 0 && len(tt.sub.Payloads) != 0 {
+				if !reflect.DeepEqual(sub.Payloads[0].Track, tt.sub.Payloads[0].Track) {
+					t.Fatalf("\ngot  %#v\nwant %#v", sub.Payloads[0].Track, tt.sub.Payloads[0].Track)
+				}
 			}
 
 		})
