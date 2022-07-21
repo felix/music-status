@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/csv"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -74,8 +75,7 @@ func main() {
 	}
 
 	mpd, err := mpd.New(
-		mpd.Host(cfgString(cfg, "mpd", "host")),
-		mpd.Port(cfgInt(cfg, "mpd", "port")),
+		mpd.Addr(fmt.Sprintf("%s:%d", cfgString(cfg, "mpd", "host"), cfgInt(cfg, "mpd", "port"))),
 		mpd.Password(cfgString(cfg, "mpd", "password")),
 		mpd.Logger(logger),
 	)

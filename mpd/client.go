@@ -1,6 +1,7 @@
 package mpd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,20 +14,26 @@ import (
 )
 
 type Client struct {
-	host     string
-	port     int
-	events   chan mstatus.Status
+	addr     string
+	conn     *gompd.Client
 	password string
-	log      mstatus.Logger
-	done     chan struct{}
+
+	events chan mstatus.Status
+
+	startWatcher chan bool
+	//chWatcherStop  chan bool
+
+	log  mstatus.Logger
+	done chan struct{}
 }
 
 func New(opts ...Option) (*Client, error) {
 	out := &Client{
-		host:   "localhost",
-		port:   6600,
+		addr:   "localhost:6600",
 		events: make(chan mstatus.Status),
-		log:    func(...interface{}) {},
+
+		startWatcher: make(chan bool),
+		log:          func(...interface{}) {},
 	}
 	for _, o := range opts {
 		if err := o(out); err != nil {
@@ -36,22 +43,18 @@ func New(opts ...Option) (*Client, error) {
 	return out, nil
 }
 
+var errConnection = errors.New("no connection")
+
 type Option option
 type option func(*Client) error
 
-func Host(h string) Option {
+func Addr(addr string) Option {
 	return func(c *Client) error {
-		c.host = h
+		c.addr = addr
 		return nil
 	}
 }
 
-func Port(p int) Option {
-	return func(c *Client) error {
-		c.port = p
-		return nil
-	}
-}
 func Password(s string) Option {
 	return func(c *Client) error {
 		c.password = s
@@ -71,40 +74,61 @@ func (c *Client) Events() chan mstatus.Status {
 
 func (c *Client) Stop() error {
 	close(c.done)
+	c.conn.Close()
+	return nil
+}
+
+func (c *Client) connect() {
+	ticker := time.NewTicker(time.Second * 5)
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			if err := c.doConnect(); err != nil {
+				errorf("failed to connect\n")
+			} else {
+				c.log("mpd connected", c.addr)
+			}
+		}
+	}
+}
+
+func (c *Client) doConnect() error {
+	if c.conn != nil {
+		if err := c.conn.Ping(); err == nil {
+			return nil
+		}
+		c.conn.Close()
+		c.conn = nil
+		c.log("disconnected from mpd retrying")
+	}
+
+	var err error
+	c.conn, err = gompd.Dial("tcp", c.addr)
+	if err != nil {
+		return errConnection
+	}
+	c.log("connected to mpd")
+	go func() { c.startWatcher <- true }()
 	return nil
 }
 
 func (c *Client) Watch() error {
 	c.log("mpd starting")
-	addr := fmt.Sprintf("%s:%d", c.host, c.port)
-	conn, err := gompd.Dial("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("failed to connect to mpd: %w", err)
-	}
-	defer conn.Close()
-	c.log("mpd connected", addr)
 
 	c.done = make(chan struct{})
 
-	go func() {
-		for range time.Tick(30 * time.Second) {
-			if err := conn.Ping(); err != nil {
-				errorf("ping failure: %s", err)
-			}
-		}
-	}()
-
-	watcher, err := gompd.NewWatcher("tcp", addr, c.password, "player")
-	if err != nil {
-		return fmt.Errorf("failed to create mpd watcher: %w", err)
-	}
-	defer watcher.Close()
+	c.doConnect()
+	go c.connect()
 
 	ticker := time.NewTicker(time.Second)
 
 	status := mstatus.Status{
 		Player: mstatus.Player{Name: "mpd"},
 	}
+
+	var mpdEvents chan string
 
 	for {
 		status.State = mstatus.StateStopped
@@ -114,18 +138,27 @@ func (c *Client) Watch() error {
 			return nil
 
 		case <-ticker.C:
-			status.Track, err = c.fetchSong(conn)
-			if err != nil {
-				c.log("mpd error", err)
-				continue
-			}
-			if status.Track != nil {
+			status.Track, err = c.fetchSong()
+			if err == nil && status.Track != nil {
 				status.State = mstatus.StatePlaying
 			}
 			c.events <- status
 
-		case <-watcher.Event:
-			attrs, err := conn.Status()
+		case <-c.startWatcher:
+			watcher, err := gompd.NewWatcher("tcp", c.addr, c.password, "player")
+			if err != nil {
+				errorf("Failed to watch MPD", err)
+				time.AfterFunc(3*time.Second, func() {
+					c.startWatcher <- true
+				})
+			}
+			if err != nil {
+				return err
+			}
+			mpdEvents = watcher.Event
+
+		case <-mpdEvents:
+			attrs, err := c.conn.Status()
 			if err == nil {
 				switch attrs["state"] {
 				case "stop":
@@ -143,15 +176,18 @@ func (c *Client) Watch() error {
 	}
 }
 
-func (c *Client) fetchSong(conn *gompd.Client) (*mstatus.Track, error) {
-	stat, err := conn.Status()
+func (c *Client) fetchSong() (*mstatus.Track, error) {
+	if c.conn == nil {
+		return nil, errConnection
+	}
+	stat, err := c.conn.Status()
 	if err != nil {
 		return nil, err
 	}
 	if stat["state"] != "play" {
 		return nil, nil
 	}
-	song, err := conn.CurrentSong()
+	song, err := c.conn.CurrentSong()
 	if err != nil {
 		return nil, err
 	}
