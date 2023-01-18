@@ -1,2 +1,4 @@
 github.com/fhs/gompd/v2 v2.2.0 h1:zdSYAAOzQ5cCCgYa5CoXkL0Vr0Cqb/b5JmTobirLc90=
 github.com/fhs/gompd/v2 v2.2.0/go.mod h1:nNdZtcpD5VpmzZbRl5rV6RhxeMmAWTxEsSIMBkmMIy4=
+golang.org/x/text v0.6.0 h1:3XmdazWV+ubf7QgHSTWeykHOci5oeekaGJBLkrkaw4k=
+golang.org/x/text v0.6.0/go.mod h1:mrYo+phRRbMaCq/xk9113O4dZlRixOauAjOtrjsXDZ8=
