@@ -1,18 +1,14 @@
 package main
 
 import (
-	"encoding/csv"
 	"flag"
-	"fmt"
 	"log"
-	"os"
-	"strconv"
-	"strings"
 
 	"src.userspace.com.au/felix/mstatus"
-	"src.userspace.com.au/felix/mstatus/listenbrainz"
-	"src.userspace.com.au/felix/mstatus/mpd"
-	"src.userspace.com.au/felix/mstatus/slack"
+	_ "src.userspace.com.au/felix/mstatus/plugins/lastfm"
+	_ "src.userspace.com.au/felix/mstatus/plugins/listenbrainz"
+	_ "src.userspace.com.au/felix/mstatus/plugins/mpd"
+	_ "src.userspace.com.au/felix/mstatus/plugins/slack"
 )
 
 func main() {
@@ -26,65 +22,18 @@ func main() {
 	flag.BoolVar(&verbose, "v", false, "Be verbose")
 	flag.Parse()
 
-	f, err := os.Open(configPath)
-	if err != nil {
-		log.Fatalf("failed to read config %q: %s\n", configPath, err)
-	}
-	r := csv.NewReader(f)
-	r.Comma = '='
-	r.Comment = '#'
-
-	cfg, err := r.ReadAll()
-	if err != nil {
-		log.Fatal(err)
-	}
-
 	logger := func(...interface{}) {}
 	if verbose {
 		logger = log.Println
 	}
 	logger("being verbose")
 
-	var options []mstatus.Option
-
-	targets := cfgString(cfg, "global", "targets")
-
-	if strings.Contains(targets, "slack") {
-		slack, err := slack.New(
-			cfgString(cfg, "slack", "token"),
-			cfgString(cfg, "slack", "url"),
-			slack.DefaultStatus(cfgString(cfg, "slack", "defaultText")),
-			slack.DefaultEmoji(cfgString(cfg, "slack", "defaultEmoji")),
-			slack.ExpireAfter(cfgString(cfg, "slack", "expireStatus")),
-			slack.Logger(logger),
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-		options = append(options, mstatus.WithHandler(slack))
-	}
-	if strings.Contains(targets, "listenbrainz") {
-		brainz, err := listenbrainz.New(
-			cfgString(cfg, "listenbrainz", "token"),
-			listenbrainz.Logger(logger),
-		)
-		if err != nil {
-			log.Fatal(err)
-		}
-		options = append(options, mstatus.WithHandler(brainz))
-	}
-
-	mpd, err := mpd.New(
-		mpd.Addr(fmt.Sprintf("%s:%d", cfgString(cfg, "mpd", "host"), cfgInt(cfg, "mpd", "port"))),
-		mpd.Password(cfgString(cfg, "mpd", "password")),
-		mpd.Logger(logger),
-	)
+	cfg, err := mstatus.ReadConfig(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
-	options = append(options, mstatus.WithLogger(logger))
 
-	svc, err := mstatus.New(mpd, options...)
+	svc, err := mstatus.New(cfg, mstatus.WithLogger(logger))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -94,22 +43,4 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-}
-
-func cfgString(cfg [][]string, scope, key string) string {
-	for _, row := range cfg {
-		parts := strings.SplitN(row[0], ".", 2)
-		if strings.EqualFold(parts[0], scope) && strings.EqualFold(parts[1], key) {
-			return row[1]
-		}
-	}
-	return ""
-}
-
-func cfgInt(cfg [][]string, scope, key string) int {
-	var out int
-	if s := cfgString(cfg, scope, key); s != "" {
-		out, _ = strconv.Atoi(s)
-	}
-	return out
 }

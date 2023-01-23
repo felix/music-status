@@ -1,9 +1,16 @@
 package mstatus
 
+import (
+	"fmt"
+	"strings"
+)
+
 type Handler interface {
+	Plugin
 	Start(<-chan Status)
 }
 type Source interface {
+	Plugin
 	Watch() error
 	Events() chan Status
 	Stop() error
@@ -15,17 +22,64 @@ type Server struct {
 	handlers []Handler
 }
 
-func New(src Source, opts ...Option) (*Server, error) {
+func New(cfg *Config, opts ...Option) (*Server, error) {
 	out := &Server{
-		src: src,
 		log: func(...interface{}) {},
 	}
+
 	for _, opt := range opts {
 		if err := opt(out); err != nil {
 			return nil, err
 		}
 	}
+
+	sourceName := cfg.ReadString("global", "source")
+	if sourceName == "" {
+		return nil, fmt.Errorf("source not defined")
+	}
+
+	src, ok := getPlugin(sourceName).(Source)
+	if src == nil || !ok {
+		return nil, fmt.Errorf("source plugin not invalid")
+	}
+	out.log("loading source", src.Name())
+	if err := src.Load(*cfg, out.log); err != nil {
+		return nil, fmt.Errorf("failed to load source plugin")
+	}
+	out.src = src
+
+	targetNames := strings.Split(cfg.ReadString("global", "targets"), ",")
+
+	for _, n := range listPlugins() {
+		if strings.EqualFold(n, sourceName) {
+			continue
+		}
+		if len(targetNames) == 0 || contains(n, targetNames) {
+			tgt := getPlugin(n).(Handler)
+			if tgt == nil {
+				return nil, fmt.Errorf("target %q invalid", n)
+			}
+			h, ok := tgt.(Handler)
+			if !ok {
+				return nil, fmt.Errorf("target %q invalid", n)
+			}
+			if err := h.Load(*cfg, out.log); err != nil {
+				return nil, fmt.Errorf("failed to load target plugin %q", n)
+			}
+			out.handlers = append(out.handlers, tgt)
+		}
+	}
+
 	return out, nil
+}
+
+func contains(needle string, haystack []string) bool {
+	for _, s := range haystack {
+		if strings.EqualFold(s, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 type Option option

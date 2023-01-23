@@ -13,6 +13,8 @@ import (
 	"src.userspace.com.au/felix/mstatus"
 )
 
+const scope = "mpd"
+
 type Client struct {
 	addr     string
 	conn     *gompd.Client
@@ -27,26 +29,40 @@ type Client struct {
 	done chan struct{}
 }
 
-func New(opts ...Option) (*Client, error) {
-	out := &Client{
+func init() {
+	mstatus.Register(&Client{
 		addr:   "localhost:6600",
 		events: make(chan mstatus.Status),
 
 		startWatcher: make(chan bool),
 		log:          func(...interface{}) {},
+	})
+}
+
+func (c *Client) Name() string {
+	return scope
+}
+
+func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+	host := cfg.ReadString(scope, "host")
+	if host == "" {
+		host = "localhost"
 	}
-	for _, o := range opts {
-		if err := o(out); err != nil {
-			return nil, err
-		}
+	port := cfg.ReadInt(scope, "port")
+	if port == 0 {
+		port = 6600
 	}
-	return out, nil
+	c.addr = fmt.Sprintf("%s:%d", host, port)
+
+	if s := cfg.ReadString(scope, "password"); s != "" {
+		c.password = s
+	}
+	return nil
 }
 
 var errConnection = errors.New("no connection")
 
-type Option option
-type option func(*Client) error
+type Option func(*Client) error
 
 func Addr(addr string) Option {
 	return func(c *Client) error {
@@ -229,6 +245,7 @@ func (c *Client) fetchSong() (*mstatus.Track, error) {
 	if err == nil {
 		elapsed = time.Duration(secs * float64(time.Second))
 	}
+	//fmt.Printf("%s became duration %s and elapsed %s\n", stat["time"], duration, elapsed)
 	return &mstatus.Track{
 		ID:          song["Id"],
 		Title:       song["Title"],

@@ -12,7 +12,18 @@ import (
 	"src.userspace.com.au/felix/mstatus"
 )
 
-const defaultURL = "https://api.listenbrainz.org/1/submit-listens"
+func init() {
+	mstatus.Register(&Client{
+		apiURL:     defaultURL,
+		log:        func(...interface{}) {},
+		httpClient: &http.Client{},
+	})
+}
+
+const (
+	scope      = "listenbrainz"
+	defaultURL = "https://api.listenbrainz.org/1/submit-listens"
+)
 
 type Client struct {
 	token      string
@@ -21,6 +32,10 @@ type Client struct {
 	log        mstatus.Logger
 
 	current *payload
+}
+
+func (c *Client) Name() string {
+	return scope
 }
 
 type submission struct {
@@ -60,32 +75,15 @@ type additionalInfo struct {
 	Tags                    []string `json:"tags,omitempty"`
 }
 
-func New(token string, opts ...Option) (*Client, error) {
-	out := &Client{
-		token:  token,
-		apiURL: defaultURL,
-		log:    func(...interface{}) {},
+func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+	c.log = log
+	if s := cfg.ReadString(scope, "token"); s != "" {
+		c.token = s
 	}
-	for _, o := range opts {
-		if err := o(out); err != nil {
-			return nil, err
-		}
+	if c.token == "" {
+		return fmt.Errorf("missing listenbrainz token")
 	}
-	if out.httpClient == nil {
-		out.httpClient = &http.Client{}
-	}
-	return out, nil
-}
-
-type Option option
-
-type option func(*Client) error
-
-func Logger(l mstatus.Logger) Option {
-	return func(c *Client) error {
-		c.log = l
-		return nil
-	}
+	return nil
 }
 
 func (c *Client) Start(events <-chan mstatus.Status) {

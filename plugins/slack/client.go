@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -11,6 +12,16 @@ import (
 
 	"src.userspace.com.au/felix/mstatus"
 )
+
+func init() {
+	mstatus.Register(&Client{
+		apiURL:     defaultURL,
+		httpClient: &http.Client{},
+		expiry:     time.Duration(5 * time.Minute),
+		emoji:      defaultEmoji,
+		log:        func(...interface{}) {},
+	})
+}
 
 type Client struct {
 	token      string
@@ -40,79 +51,48 @@ func (p payload) String() string {
 }
 
 const (
+	scope        = "slack"
+	defaultURL   = "https://api.slack.com"
 	slackAction  = "/users.profile.set"
 	defaultEmoji = ":musical_note:"
 )
 
-func New(token, url string, opts ...Option) (*Client, error) {
-	if !strings.HasPrefix(url, "http") {
-		url = "https://" + url
-	}
-	out := &Client{
-		token:      token,
-		apiURL:     url,
-		httpClient: &http.Client{},
-		expiry:     time.Duration(15 * time.Second),
-		emoji:      defaultEmoji,
-		log:        func(...interface{}) {},
-	}
-	for _, o := range opts {
-		if err := o(out); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
+func (c *Client) Name() string {
+	return scope
 }
 
-type Option option
-
-type option func(*Client) error
-
-func ExpireAfter(s string) Option {
-	return func(c *Client) error {
-		if s == "" {
-			return nil
+func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+	c.log = log
+	if s := cfg.ReadString(scope, "token"); s != "" {
+		c.token = s
+	}
+	if s := cfg.ReadString(scope, "url"); s != "" {
+		if !strings.HasPrefix(s, "http") {
+			s = "https://" + s
 		}
+		c.apiURL = s
+	}
+	if s := cfg.ReadString(scope, "expireStatus"); s != "" {
 		d, err := time.ParseDuration(s)
+		if err != nil {
+			return err
+		}
 		c.expiry = d
-		return err
 	}
-}
-
-func DefaultEmoji(e string) Option {
-	return func(c *Client) error {
-		if e == "" {
-			return nil
-		}
-		c.defaultEmoji = e
-		return nil
+	if s := cfg.ReadString(scope, "defaultEmoji"); s != "" {
+		c.defaultEmoji = s
 	}
-}
-
-func DefaultStatus(s string) Option {
-	return func(c *Client) error {
-		if s == "" {
-			return nil
-		}
+	if s := cfg.ReadString(scope, "defaultStatus"); s != "" {
 		c.defaultStatus = s
-		return nil
 	}
-}
+	if s := cfg.ReadString(scope, "emoji"); s != "" {
+		c.emoji = s
+	}
+	if c.token == "" {
+		return fmt.Errorf("missing slack token")
+	}
 
-func Emoji(e string) Option {
-	return func(c *Client) error {
-		if e == "" {
-			return nil
-		}
-		c.emoji = e
-		return nil
-	}
-}
-func Logger(l mstatus.Logger) Option {
-	return func(c *Client) error {
-		c.log = l
-		return nil
-	}
+	return nil
 }
 
 func (c *Client) Start(events <-chan mstatus.Status) {
@@ -184,9 +164,12 @@ func (c *Client) setStatus(p payload) error {
 		Warning string `json:"warning"`
 		Error   string `json:"error"`
 	}{}
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(&r); err != nil {
-		c.log("slack invalid response", err)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.log("failed to read body", err)
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		c.log("slack invalid response", err, string(body))
 	}
 	if !r.OK {
 		c.log("slack failure", r.Warning, r.Error)
