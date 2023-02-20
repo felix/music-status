@@ -2,7 +2,15 @@
 
 Publish your current audio track.
 
-Currently only supports MPD, Slack, and Listenbrainz.
+Currently supports the following sources:
+
+- MPD
+- LastFM
+
+and the following targets:
+
+- Slack
+- Listenbrainz
 
 
 ## Configuration
@@ -13,13 +21,4 @@ sysctl). See the `example.conf` provided.
 
 ## Usage
 
-```
-Usage of ./music-status:
-  -c string
-        Config file (default ".music-status.conf")
-  -config string
-        Config file (default ".music-status.conf")
-  -v    Be verbose
-  -verbose
-        Be verbose
-```
+See the output of `music-status -h`.
