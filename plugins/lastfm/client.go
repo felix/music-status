@@ -90,6 +90,7 @@ func (c *Client) Watch() error {
 
 			if len(result.Tracks) == 0 {
 				c.events <- status
+				continue
 			}
 
 			ctrack := result.Tracks[0]
