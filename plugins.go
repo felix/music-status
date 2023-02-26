@@ -13,6 +13,7 @@ var (
 type Plugin interface {
 	Name() string
 	Load(Config, Logger) error
+	Stop() error
 	//Run() error
 }
 

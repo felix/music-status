@@ -137,6 +137,14 @@ func (c *Client) Start(events <-chan mstatus.Status) {
 	}
 }
 
+func (c *Client) Stop() error {
+	return c.setStatus(payload{
+		StatusText:       c.defaultStatus,
+		StatusEmoji:      c.defaultEmoji,
+		StatusExpiration: 0,
+	})
+}
+
 func (c *Client) setStatus(p payload) error {
 	uri := c.apiURL + slackAction
 	buf := &bytes.Buffer{}

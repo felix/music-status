@@ -152,6 +152,11 @@ func (c *Client) Start(events <-chan mstatus.Status) {
 	}
 }
 
+func (c *Client) Stop() error {
+	c.current = nil
+	return nil
+}
+
 func (c *Client) submit(sub submission) error {
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)

@@ -3,6 +3,8 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
+	"os/signal"
 
 	"src.userspace.com.au/felix/mstatus"
 	_ "src.userspace.com.au/felix/mstatus/plugins/lastfm"
@@ -38,9 +40,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// This blocks
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt)
+
+	go func() {
+		<-sigs
+		svc.Stop()
+	}()
+
 	err = svc.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
+
 }

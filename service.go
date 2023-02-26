@@ -13,7 +13,6 @@ type Source interface {
 	Plugin
 	Watch() error
 	Events() chan Status
-	Stop() error
 }
 
 type Server struct {
@@ -126,5 +125,11 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) Stop() error {
+	s.log("stopping")
+	for _, h := range s.handlers {
+		if err := h.Stop(); err != nil {
+			s.log("failed to stop plugin", h.Name(), err)
+		}
+	}
 	return s.src.Stop()
 }
