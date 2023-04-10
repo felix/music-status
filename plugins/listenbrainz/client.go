@@ -14,15 +14,19 @@ import (
 
 func init() {
 	mstatus.Register(&Client{
-		apiURL:     defaultURL,
+		apiURL:     submitURL,
 		log:        func(...interface{}) {},
 		httpClient: &http.Client{},
+
+		events:       make(chan mstatus.Status),
+		startWatcher: make(chan bool),
 	})
 }
 
 const (
-	scope      = "listenbrainz"
-	defaultURL = "https://api.listenbrainz.org/1/submit-listens"
+	scope       = "listenbrainz"
+	submitURL   = "https://api.listenbrainz.org/1/submit-listens"
+	fetchURLFmt = "https://api.listenbrainz.org/1/user/%s/playing-now"
 )
 
 type Client struct {
@@ -32,7 +36,17 @@ type Client struct {
 	log        mstatus.Logger
 
 	current *payload
+
+	// For a source
+	username     string
+	events       chan mstatus.Status
+	startWatcher chan bool
+	done         chan struct{}
 }
+
+var _ mstatus.Source = (*Client)(nil)
+
+//var _ mstatus.Handler = (*Client)(nil)
 
 func (c *Client) Name() string {
 	return scope
@@ -82,6 +96,9 @@ func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
 	}
 	if c.token == "" {
 		return fmt.Errorf("missing listenbrainz token")
+	}
+	if s := cfg.ReadString(scope, "username"); s != "" {
+		c.username = s
 	}
 	return nil
 }
@@ -153,6 +170,7 @@ func (c *Client) Start(events <-chan mstatus.Status) {
 }
 
 func (c *Client) Stop() error {
+	close(c.done)
 	c.current = nil
 	return nil
 }
@@ -182,6 +200,119 @@ func (c *Client) submit(sub submission) error {
 	}
 	c.log("listenbrainz published", sub.ListenType, sub.Payloads[0])
 	return nil
+}
+
+//	{ "payload":{
+//		"count":1,
+//		"listens":[{
+//			"playing_now":true,
+//			"track_metadata":{
+//				"additional_info":{
+//					"albumartist":"Jack White",
+//					"artist_mbids":["3ae2fb37-8a23-429d-9920-bac811c4fc22"],
+//					"date":"2016-09-09",
+//					"discnumber":1,
+//					"duration":181,
+//					"genre":"Rock",
+//					"media_player":"Kodi",
+//					"media_player_version":"19.4.0",
+//					"recording_mbid":"d48ef3ed-40c2-45df-b9c8-e90a88dfe75d",
+//					"submission_client":"service.listenbrainz",
+//					"submission_client_version":"0.3.1",
+//					"tracknumber":20
+//				},
+//				"artist_name":"Jack White",
+//				"release_name":"Acoustic Recordings 1998-2016",
+//				"track_name":"Machine Gun Silhouette"
+//			}
+//		}],
+//		"playing_now":true,
+//		"user_id":"yelnah"
+//	}}
+type listenPayload struct {
+	Payload struct {
+		Count      int    `json:"count"`
+		PlayingNow bool   `json:"playing_now"`
+		UserID     string `json:"user_id"`
+		Listens    []struct {
+			PlayingNow    bool `json:"playing_now"`
+			TrackMetadata struct {
+				TrackName      string `json:"track_name"`
+				ArtistName     string `json:"artist_name"`
+				ReleaseName    string `json:"release_name"`
+				AdditionalInfo struct {
+					RecordingMBID string `json:"recording_mbid"`
+					//ReleaseMBID   string `json:"release_mbid"`
+					Duration int `json:"duration"`
+				} `json:"additional_info"`
+			} `json:"track_metadata"`
+		} `json:"listens"`
+	} `json:"payload"`
+}
+
+func (c *Client) Watch() error {
+	c.log("listenbrainz source starting")
+
+	if c.username == "" {
+		return fmt.Errorf("invalid listenbrainz username")
+	}
+
+	c.done = make(chan struct{})
+
+	ticker := time.NewTicker(3 * time.Second)
+
+	status := mstatus.Status{
+		Player: mstatus.Player{Name: scope},
+	}
+
+	for {
+		status.State = mstatus.StateStopped
+
+		select {
+		case <-c.done:
+			return nil
+
+		case <-ticker.C:
+			res, err := c.httpClient.Get(fmt.Sprintf(fetchURLFmt, c.username))
+			if err != nil {
+				c.log("failed to get recent tracks", err)
+				return err
+			}
+
+			dec := json.NewDecoder(res.Body)
+			var results listenPayload
+			if err := dec.Decode(&results); err != nil {
+				c.log("failed to parse results", err)
+			}
+
+			if !results.Payload.PlayingNow || len(results.Payload.Listens) < 1 {
+				c.events <- status
+				continue
+			}
+
+			ctrack := results.Payload.Listens[0]
+
+			var duration = time.Duration(float64(ctrack.TrackMetadata.AdditionalInfo.Duration) * float64(time.Second))
+
+			status.Track = &mstatus.Track{
+				ID:       ctrack.TrackMetadata.AdditionalInfo.RecordingMBID,
+				Title:    ctrack.TrackMetadata.TrackName,
+				Artist:   ctrack.TrackMetadata.ArtistName,
+				Album:    ctrack.TrackMetadata.ReleaseName,
+				Duration: duration,
+				//Elapsed:     elapsed,
+				MbTrackID: ctrack.TrackMetadata.AdditionalInfo.RecordingMBID,
+				//MbReleaseID: ctrack.TrackMetadata.AdditionalInfo.ReleaseMBID,
+				//MbArtistID:  ctrack.Artist.Mbid,
+			}
+			status.State = mstatus.StatePlaying
+			c.events <- status
+		}
+	}
+}
+
+func (c *Client) Events() chan mstatus.Status {
+	return c.events
 }
 
 func errorf(format string, v ...interface{}) {

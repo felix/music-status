@@ -9,9 +9,7 @@ import (
 	"src.userspace.com.au/felix/mstatus"
 )
 
-const (
-	scope = "lastfm"
-)
+const scope = "lastfm"
 
 type Client struct {
 	api      *lastfm.Api
@@ -25,6 +23,8 @@ type Client struct {
 	log  mstatus.Logger
 	done chan struct{}
 }
+
+var _ mstatus.Source = (*Client)(nil)
 
 func init() {
 	mstatus.Register(&Client{

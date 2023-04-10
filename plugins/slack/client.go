@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ func (p payload) String() string {
 const (
 	scope        = "slack"
 	defaultURL   = "https://api.slack.com"
-	slackAction  = "/users.profile.set"
+	slackAction  = "users.profile.set"
 	defaultEmoji = ":musical_note:"
 )
 
@@ -146,7 +147,10 @@ func (c *Client) Stop() error {
 }
 
 func (c *Client) setStatus(p payload) error {
-	uri := c.apiURL + slackAction
+	uri, err := url.JoinPath(c.apiURL, slackAction)
+	if err != nil {
+		return err
+	}
 	buf := &bytes.Buffer{}
 	enc := json.NewEncoder(buf)
 	if err := enc.Encode(map[string]payload{"profile": p}); err != nil {
