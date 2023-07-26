@@ -11,15 +11,18 @@ import (
 	_ "src.userspace.com.au/felix/mstatus/plugins/listenbrainz"
 	_ "src.userspace.com.au/felix/mstatus/plugins/mpd"
 	_ "src.userspace.com.au/felix/mstatus/plugins/slack"
+	_ "src.userspace.com.au/felix/mstatus/plugins/spotify"
 )
 
 func main() {
 	var (
-		configPath string
-		verbose    bool
+		configPath  string
+		listPlugins bool
+		verbose     bool
 	)
 	flag.StringVar(&configPath, "config", ".music-status.conf", "Config file")
 	flag.StringVar(&configPath, "c", ".music-status.conf", "Config file")
+	flag.BoolVar(&listPlugins, "plugins", false, "List plugins")
 	flag.BoolVar(&verbose, "verbose", false, "Be verbose")
 	flag.BoolVar(&verbose, "v", false, "Be verbose")
 	flag.Parse()

@@ -39,7 +39,7 @@ func New(cfg *Config, opts ...Option) (*Server, error) {
 
 	src, ok := getPlugin(sourceName).(Source)
 	if src == nil || !ok {
-		return nil, fmt.Errorf("source plugin not invalid")
+		return nil, fmt.Errorf("source plugin invalid")
 	}
 	out.log("loading source", src.Name())
 	if err := src.Load(*cfg, out.log); err != nil {
