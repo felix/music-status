@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type Config struct {
-	data [][]string
+	data map[string]string
 }
 
 func ReadConfig(p string) (*Config, error) {
@@ -17,22 +16,30 @@ func ReadConfig(p string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config %q: %s\n", p, err)
 	}
+	defer f.Close()
 	r := csv.NewReader(f)
 	r.Comma = '='
 	r.Comment = '#'
 
 	out := new(Config)
 
-	out.data, err = r.ReadAll()
-	return out, err
+	data, err := r.ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	out.data = make(map[string]string)
+
+	for _, row := range data {
+		out.data[row[0]] = row[1]
+	}
+	return out, nil
 }
 
 func (cfg *Config) ReadString(scope, key string) string {
-	for _, row := range cfg.data {
-		parts := strings.SplitN(row[0], ".", 2)
-		if strings.EqualFold(parts[0], scope) && strings.EqualFold(parts[1], key) {
-			return row[1]
-		}
+	v, ok := cfg.data[scope+"."+key]
+	if ok {
+		return v
 	}
 	return ""
 }

@@ -8,6 +8,7 @@ import (
 
 	spot "github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
+	"golang.org/x/oauth2"
 	"src.userspace.com.au/felix/mstatus"
 )
 
@@ -21,11 +22,13 @@ func init() {
 }
 
 type Client struct {
-	events chan mstatus.Status
-	auth   *spotifyauth.Authenticator
-	api    *spot.Client
-	log    mstatus.Logger
-	done   chan struct{}
+	events       chan mstatus.Status
+	auth         *spotifyauth.Authenticator
+	api          *spot.Client
+	clientID     string
+	clientSecret string
+	log          mstatus.Logger
+	done         chan struct{}
 }
 
 var _ mstatus.Source = (*Client)(nil)
@@ -38,6 +41,9 @@ func (c *Client) Name() string {
 
 func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
 	c.log = log
+	c.clientID = cfg.ReadString(scope, "client_id")
+	c.clientSecret = cfg.ReadString(scope, "client_secret")
+	c.done = make(chan struct{})
 	return nil
 }
 
@@ -54,9 +60,11 @@ func (c *Client) doAuth(log mstatus.Logger) error {
 	var ch = make(chan *spot.Client)
 	var state = "abc123"
 
+	spotifyauth.ShowDialog = oauth2.SetAuthURLParam("show_dialog", "false")
 	c.auth = spotifyauth.New(
+		spotifyauth.WithClientID(c.clientID),
+		spotifyauth.WithClientSecret(c.clientSecret),
 		spotifyauth.WithRedirectURL(redirectURI),
-		spotifyauth.WithClientID("9ab7137d0f3f447d8f2b480d8dcd5b86"),
 		spotifyauth.WithScopes(
 			spotifyauth.ScopeUserReadCurrentlyPlaying,
 			spotifyauth.ScopeUserReadPlaybackState,
@@ -106,8 +114,6 @@ func (c *Client) Watch() error {
 		return err
 	}
 
-	c.done = make(chan struct{})
-
 	ticker := time.NewTicker(3 * time.Second)
 
 	status := mstatus.Status{
@@ -124,28 +130,28 @@ func (c *Client) Watch() error {
 			return nil
 
 		case <-ticker.C:
-			queue, err := c.api.GetQueue(ctx)
+			cTrack, err := c.api.PlayerCurrentlyPlaying(ctx)
 			if err != nil {
 				c.log("failed to get recent tracks", err)
 				continue
 			}
 
-			// if len(queue.CurrentlyPlaying) == 0 {
-			// 	c.events <- status
-			// 	continue
-			// }
+			if !cTrack.Playing {
+				c.events <- status
+				continue
+			}
 
 			artist := ""
-			if len(queue.CurrentlyPlaying.Artists) > 0 {
-				artist = queue.CurrentlyPlaying.Artists[0].Name
+			if len(cTrack.Item.Artists) > 0 {
+				artist = cTrack.Item.Artists[0].Name
 			}
 
 			status.Track = &mstatus.Track{
-				ID:       queue.CurrentlyPlaying.ID.String(),
-				Title:    queue.CurrentlyPlaying.Name,
+				ID:       cTrack.Item.ID.String(),
+				Title:    cTrack.Item.Name,
 				Artist:   artist,
-				Album:    queue.CurrentlyPlaying.Album.Name,
-				Duration: queue.CurrentlyPlaying.TimeDuration(),
+				Album:    cTrack.Item.Album.Name,
+				Duration: cTrack.Item.TimeDuration(),
 				//Elapsed:     elapsed,
 			}
 			status.State = mstatus.StatePlaying
