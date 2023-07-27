@@ -43,18 +43,18 @@ func (c *Client) Name() string {
 	return scope
 }
 
-func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
-	host := cfg.ReadString(scope, "host")
+func (c *Client) Load(cfg *mstatus.Session, log mstatus.Logger) error {
+	host := cfg.ConfigString(scope, "host")
 	if host == "" {
 		host = "localhost"
 	}
-	port := cfg.ReadInt(scope, "port")
+	port := cfg.ConfigInt(scope, "port")
 	if port == 0 {
 		port = 6600
 	}
 	c.addr = fmt.Sprintf("%s:%d", host, port)
 
-	if s := cfg.ReadString(scope, "password"); s != "" {
+	if s := cfg.ConfigString(scope, "password"); s != "" {
 		c.password = s
 	}
 	return nil

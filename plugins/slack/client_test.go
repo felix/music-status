@@ -74,7 +74,11 @@ func TestSlackHandle(t *testing.T) {
 			}))
 			defer ts.Close()
 
-			c, _ := New("token", ts.URL, Logger(t.Log))
+			c := &Client{
+				token:  "token",
+				apiURL: ts.URL,
+				log:    mstatus.Logger(t.Log),
+			}
 			c.httpClient = ts.Client()
 
 			ch := make(chan mstatus.Status)

@@ -47,4 +47,13 @@ type Player struct {
 	Version string
 }
 
-type Logger func(...interface{})
+type Logger func(...any)
+
+func prefixedLogger(prefix string, l Logger) Logger {
+	if l == nil {
+		return l
+	}
+	return func(v ...any) {
+		l(append([]any{prefix}, v...)...)
+	}
+}

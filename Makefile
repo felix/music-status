@@ -7,6 +7,9 @@ build: $(BINARY)
 $(BINARY): $(SRC) go.mod
 	go build --trimpath -ldflags "-w -s" -o $@ ./cmd/
 
+debug: $(SRC) go.mod
+	go build -o $@ ./cmd/
+
 test: lint
 	go test -race -short -coverprofile=coverage.out -covermode=atomic ./...
 

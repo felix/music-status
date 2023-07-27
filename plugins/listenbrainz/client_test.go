@@ -110,7 +110,11 @@ func TestListenbrainzHandle(t *testing.T) {
 			}))
 			defer ts.Close()
 
-			c, _ := New("token")
+			c := &Client{
+				token:  "token",
+				apiURL: ts.URL,
+				log:    mstatus.Logger(t.Log),
+			}
 			c.httpClient = ts.Client()
 			c.apiURL = ts.URL
 			c.current = tt.current
