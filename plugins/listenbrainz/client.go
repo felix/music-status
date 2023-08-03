@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -89,15 +89,15 @@ type additionalInfo struct {
 	Tags                    []string `json:"tags,omitempty"`
 }
 
-func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+func (c *Client) Load(cfg *mstatus.Session, log mstatus.Logger) error {
 	c.log = log
-	if s := cfg.ReadString(scope, "token"); s != "" {
+	if s := cfg.ConfigString(scope, "token"); s != "" {
 		c.token = s
 	}
 	if c.token == "" {
 		return fmt.Errorf("missing listenbrainz token")
 	}
-	if s := cfg.ReadString(scope, "username"); s != "" {
+	if s := cfg.ConfigString(scope, "username"); s != "" {
 		c.username = s
 	}
 	return nil
@@ -192,7 +192,7 @@ func (c *Client) submit(sub submission) error {
 		var body []byte
 		if resp != nil && resp.StatusCode != 200 {
 			if resp.Body != nil {
-				body, _ = ioutil.ReadAll(resp.Body)
+				body, _ = io.ReadAll(resp.Body)
 			}
 			err = fmt.Errorf("failed to set status: %w %d %q", err, resp.StatusCode, string(body))
 		}

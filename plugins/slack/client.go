@@ -62,31 +62,31 @@ func (c *Client) Name() string {
 	return scope
 }
 
-func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+func (c *Client) Load(sess *mstatus.Session, log mstatus.Logger) error {
 	c.log = log
-	if s := cfg.ReadString(scope, "token"); s != "" {
+	if s := sess.ConfigString(scope, "token"); s != "" {
 		c.token = s
 	}
-	if s := cfg.ReadString(scope, "url"); s != "" {
+	if s := sess.ConfigString(scope, "url"); s != "" {
 		if !strings.HasPrefix(s, "http") {
 			s = "https://" + s
 		}
 		c.apiURL = s
 	}
-	if s := cfg.ReadString(scope, "expireStatus"); s != "" {
+	if s := sess.ConfigString(scope, "expireStatus"); s != "" {
 		d, err := time.ParseDuration(s)
 		if err != nil {
 			return err
 		}
 		c.expiry = d
 	}
-	if s := cfg.ReadString(scope, "defaultEmoji"); s != "" {
+	if s := sess.ConfigString(scope, "defaultEmoji"); s != "" {
 		c.defaultEmoji = s
 	}
-	if s := cfg.ReadString(scope, "defaultStatus"); s != "" {
+	if s := sess.ConfigString(scope, "defaultStatus"); s != "" {
 		c.defaultStatus = s
 	}
-	if s := cfg.ReadString(scope, "emoji"); s != "" {
+	if s := sess.ConfigString(scope, "emoji"); s != "" {
 		c.emoji = s
 	}
 	if c.token == "" {

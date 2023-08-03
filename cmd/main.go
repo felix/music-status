@@ -16,12 +16,9 @@ import (
 
 func main() {
 	var (
-		configPath  string
 		listPlugins bool
 		verbose     bool
 	)
-	flag.StringVar(&configPath, "config", ".music-status.conf", "Config file")
-	flag.StringVar(&configPath, "c", ".music-status.conf", "Config file")
 	flag.BoolVar(&listPlugins, "plugins", false, "List plugins")
 	flag.BoolVar(&verbose, "verbose", false, "Be verbose")
 	flag.BoolVar(&verbose, "v", false, "Be verbose")
@@ -33,12 +30,9 @@ func main() {
 	}
 	logger("being verbose")
 
-	cfg, err := mstatus.ReadConfig(configPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	svc, err := mstatus.New(cfg, mstatus.WithLogger(logger))
+	svc, err := mstatus.New(
+		mstatus.WithLogger(logger),
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -55,5 +49,5 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
+	svc.Stop()
 }

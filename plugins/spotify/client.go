@@ -23,8 +23,10 @@ func init() {
 
 type Client struct {
 	events       chan mstatus.Status
+	sess         *mstatus.Session
 	auth         *spotifyauth.Authenticator
 	api          *spot.Client
+	loginServer  *http.Server
 	clientID     string
 	clientSecret string
 	log          mstatus.Logger
@@ -39,10 +41,11 @@ func (c *Client) Name() string {
 	return scope
 }
 
-func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+func (c *Client) Load(sess *mstatus.Session, log mstatus.Logger) error {
 	c.log = log
-	c.clientID = cfg.ReadString(scope, "client_id")
-	c.clientSecret = cfg.ReadString(scope, "client_secret")
+	c.clientID = sess.ConfigString(scope, "client_id")
+	c.clientSecret = sess.ConfigString(scope, "client_secret")
+	c.sess = sess
 	c.done = make(chan struct{})
 	return nil
 }
@@ -53,12 +56,20 @@ func (c *Client) Events() chan mstatus.Status {
 
 func (c *Client) Stop() error {
 	close(c.done)
+	if c.loginServer != nil {
+		return c.loginServer.Close()
+	}
 	return nil
 }
 
-func (c *Client) doAuth(log mstatus.Logger) error {
-	var ch = make(chan *spot.Client)
-	var state = "abc123"
+func (c *Client) Watch() error {
+	c.log("spotify starting")
+
+	var err error
+	var token oauth2.Token
+	if err := c.sess.ReadState(scope, &token); err != nil {
+		return err
+	}
 
 	spotifyauth.ShowDialog = oauth2.SetAuthURLParam("show_dialog", "false")
 	c.auth = spotifyauth.New(
@@ -71,48 +82,18 @@ func (c *Client) doAuth(log mstatus.Logger) error {
 		),
 	)
 
-	completeAuth := func(w http.ResponseWriter, r *http.Request) {
-		tok, err := c.auth.Token(r.Context(), state, r)
-		if err != nil {
-			http.Error(w, "Couldn't get token", http.StatusForbidden)
-			log(err)
+	if token.AccessToken == "" {
+		if token, err = c.getToken(c.log); err != nil {
+			return err
 		}
-		if st := r.FormValue("state"); st != state {
-			http.NotFound(w, r)
-			log("State mismatch: %s != %s\n", st, state)
+		if token.AccessToken != "" {
+			if err := c.sess.WriteState(scope, token); err != nil {
+				return err
+			}
 		}
-
-		// use the token to get an authenticated client
-		client := spot.New(c.auth.Client(r.Context(), tok))
-		fmt.Fprintf(w, "Login Completed!")
-		ch <- client
 	}
 
-	http.HandleFunc("/callback", completeAuth)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log("Got request for:", r.URL.String())
-	})
-	go func() {
-		err := http.ListenAndServe(":8080", nil)
-		if err != nil {
-			log(err)
-		}
-	}()
-
-	url := c.auth.AuthURL(state)
-	fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
-
-	// wait for auth to complete
-	c.api = <-ch
-	return nil
-}
-
-func (c *Client) Watch() error {
-	c.log("spotify starting")
-
-	if err := c.doAuth(c.log); err != nil {
-		return err
-	}
+	c.api = spot.New(c.auth.Client(context.Background(), &token))
 
 	ticker := time.NewTicker(3 * time.Second)
 
@@ -136,7 +117,7 @@ func (c *Client) Watch() error {
 				continue
 			}
 
-			if !cTrack.Playing {
+			if cTrack == nil || !cTrack.Playing {
 				c.events <- status
 				continue
 			}
@@ -158,4 +139,43 @@ func (c *Client) Watch() error {
 			c.events <- status
 		}
 	}
+}
+
+func (c *Client) getToken(log mstatus.Logger) (oauth2.Token, error) {
+	var ch = make(chan *oauth2.Token)
+	var state = "abc123"
+
+	completeAuth := func(w http.ResponseWriter, r *http.Request) {
+		tok, err := c.auth.Token(r.Context(), state, r)
+		if err != nil {
+			http.Error(w, "Couldn't get token", http.StatusForbidden)
+			log(err)
+		}
+		if st := r.FormValue("state"); st != state {
+			http.NotFound(w, r)
+			log("State mismatch: %s != %s\n", st, state)
+		}
+		fmt.Fprintf(w, "Login Completed!")
+		ch <- tok
+	}
+
+	http.HandleFunc("/callback", completeAuth)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		log("Got request for:", r.URL.String())
+	})
+	go func() {
+		c.loginServer = &http.Server{Addr: ":8080", Handler: nil}
+		if err := c.loginServer.ListenAndServe(); err != nil {
+			log(err)
+		}
+	}()
+
+	url := c.auth.AuthURL(state)
+	fmt.Println("Please log in to Spotify by visiting the following page in your browser:", url)
+
+	// wait for auth to complete
+	tok := <-ch
+	err := c.loginServer.Close()
+	c.loginServer = nil
+	return *tok, err
 }

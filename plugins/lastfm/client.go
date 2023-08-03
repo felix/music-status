@@ -39,10 +39,10 @@ func (c *Client) Name() string {
 	return scope
 }
 
-func (c *Client) Load(cfg mstatus.Config, log mstatus.Logger) error {
+func (c *Client) Load(sess *mstatus.Session, log mstatus.Logger) error {
 	c.log = log
-	key := cfg.ReadString(scope, "key")
-	c.username = cfg.ReadString(scope, "username")
+	key := sess.ConfigString(scope, "key")
+	c.username = sess.ConfigString(scope, "username")
 	c.api = lastfm.New(key, "")
 	return nil
 }
