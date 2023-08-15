@@ -181,7 +181,6 @@ func (s *Server) Stop() error {
 
 	// Write out state file
 	s.log("writing state file")
-	fmt.Println(s.sess.state)
 	stateFile, err := os.Create(s.stateFilePath)
 	if err != nil {
 		s.log("failed to open state file", err)

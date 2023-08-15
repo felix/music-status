@@ -117,7 +117,7 @@ func (c *Client) Watch() error {
 				continue
 			}
 
-			if cTrack == nil || !cTrack.Playing {
+			if cTrack == nil || cTrack.Item == nil || !cTrack.Playing {
 				c.events <- status
 				continue
 			}
